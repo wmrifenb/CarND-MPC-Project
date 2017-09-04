@@ -6,8 +6,11 @@
 #include <vector>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
+#include "Eigen-3.3/Eigen/LU"
 #include "MPC.h"
 #include "json.hpp"
+#include <math.h>
+#include <stdio.h>
 
 // for convenience
 using json = nlohmann::json;
@@ -92,6 +95,41 @@ int main() {
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
 
+          //Transformation Matrix for car frame to global frame
+          Eigen::MatrixXd A(3,3);
+          A << cos(-psi), sin(-psi), px,
+              -sin(-psi), cos(-psi), py,
+                      0,        0,  1;
+          //Take the inverse
+          Eigen::MatrixXd Ai(A.inverse());
+
+          //Transform waypoints from global to carframe to plot yellow line
+          Eigen::VectorXd ptsx_carframe(ptsx.size());
+          Eigen::VectorXd ptsy_carframe(ptsy.size());
+          for(int i=0; i<ptsx.size(); i++){
+
+            Eigen::VectorXd pt_globalframe(3);
+            Eigen::VectorXd pt_carframe(3);
+            pt_globalframe << ptsx[i], ptsy[i], 1;
+            pt_carframe = Ai * pt_globalframe;
+
+            ptsx_carframe[i] = pt_carframe[0];
+            ptsy_carframe[i] = pt_carframe[1];
+
+          }
+
+          //Calculate 2nd order waypoint polynomial in car frame.
+          auto coeffs = polyfit(ptsx_carframe, ptsy_carframe, 2);
+
+          // The cross track error is calculated by evaluating at polynomial at x=0
+          double cte = polyeval(coeffs, 0);
+
+          // The orientation error is -arctan of f'(0)
+          double epsi = -atan( coeffs[1] );
+
+          Eigen::VectorXd state(6);
+          state << px, py, psi, v, cte, epsi;
+
           /*
           * TODO: Calculate steering angle and throttle using MPC.
           *
@@ -100,6 +138,12 @@ int main() {
           */
           double steer_value;
           double throttle_value;
+          MPC mpc;
+          auto result = mpc.Solve(state, coeffs);
+          int N = result[0];
+
+          steer_value = -result[2*N + 1]/deg2rad(25);
+          throttle_value = result[2*N + 2]/3.33;
 
           json msgJson;
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
@@ -111,6 +155,11 @@ int main() {
           vector<double> mpc_x_vals;
           vector<double> mpc_y_vals;
 
+          for(int i = 0; i<N; i++){
+            mpc_x_vals.push_back(result[1 + i]);
+            mpc_y_vals.push_back(result[1 + N + i]);
+          }
+
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Green line
 
@@ -118,8 +167,8 @@ int main() {
           msgJson["mpc_y"] = mpc_y_vals;
 
           //Display the waypoints/reference line
-          vector<double> next_x_vals;
-          vector<double> next_y_vals;
+          vector<double> next_x_vals(ptsx_carframe.data(), ptsx_carframe.data() + ptsx_carframe.size());
+          vector<double> next_y_vals(ptsy_carframe.data(), ptsy_carframe.data() + ptsy_carframe.size());
 
           //.. add (x,y) points to list here, points are in reference to the vehicle's coordinate system
           // the points in the simulator are connected by a Yellow line
@@ -139,7 +188,7 @@ int main() {
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
           // SUBMITTING.
-          this_thread::sleep_for(chrono::milliseconds(100));
+          //this_thread::sleep_for(chrono::milliseconds(100));
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {
