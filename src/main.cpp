@@ -94,11 +94,19 @@ int main() {
           double py = j[1]["y"];
           double psi = j[1]["psi"];
           double v = j[1]["speed"];
+          //Convert to m/s
+          v *= 0.44704;
+          double delta = j[1]["steering_angle"];
+          delta *= -1;
+          double a = j[1]["throttle"];
+          //Convert to m/s^2
+          a *= 2.98027;
+
 
           //Transformation Matrix for car frame to global frame
           Eigen::MatrixXd A(3,3);
-          A << cos(-psi), sin(-psi), px,
-              -sin(-psi), cos(-psi), py,
+          A << cos(psi), -sin(psi), px,
+                sin(psi), cos(psi), py,
                       0,        0,  1;
           //Take the inverse
           Eigen::MatrixXd Ai(A.inverse());
@@ -119,16 +127,26 @@ int main() {
           }
 
           //Calculate 2nd order waypoint polynomial in car frame.
-          auto coeffs = polyfit(ptsx_carframe, ptsy_carframe, 2);
+          auto coeffs = polyfit(ptsx_carframe, ptsy_carframe, 3);
 
           // The cross track error is calculated by evaluating at polynomial at x=0
-          double cte = polyeval(coeffs, 0);
+          //double cte = polyeval(coeffs, 0);
 
           // The orientation error is -arctan of f'(0)
-          double epsi = -atan( coeffs[1] );
+          //double epsi = -atan( coeffs[1] );
+
+          //Add delay and then send to MPC
+          //Ordering matters here
+          double Lf = 2.67;
+          double delay = 0.100;
+          double x0 = v * delay;
+          double psi0 = v * delta / Lf * delay;
+          double v0 = v + a * delta;
+          double cte0 = polyeval(coeffs, x0);
+          double epsi0 = -atan(coeffs[1] + 2 * coeffs[2] * x0 + 3 * coeffs[3] * x0 * x0) - psi0;
 
           Eigen::VectorXd state(6);
-          state << px, py, psi, v, cte, epsi;
+          state << x0, 0.0, psi0, v0, cte0, epsi0;
 
           /*
           * TODO: Calculate steering angle and throttle using MPC.
@@ -143,7 +161,7 @@ int main() {
           int N = result[0];
 
           steer_value = -result[2*N + 1]/deg2rad(25);
-          throttle_value = result[2*N + 2]/3.33;
+          throttle_value = result[2*N + 2]/2.98027;
 
           json msgJson;
           // NOTE: Remember to divide by deg2rad(25) before you send the steering value back.
@@ -188,7 +206,7 @@ int main() {
           //
           // NOTE: REMEMBER TO SET THIS TO 100 MILLISECONDS BEFORE
           // SUBMITTING.
-          //this_thread::sleep_for(chrono::milliseconds(100));
+          this_thread::sleep_for(chrono::milliseconds(100));
           ws.send(msg.data(), msg.length(), uWS::OpCode::TEXT);
         }
       } else {
