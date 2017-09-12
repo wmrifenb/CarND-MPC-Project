@@ -83,7 +83,7 @@ This conversion factor was estimated by flooring the throttle (setting throttle 
 
 ## Model Predictive Control with Latency
 
-To model and counter the control actuation delay, the MPC optimizer was fed and initial state that was actually the predicted state of the vehicle 100 milliseconds into the future. The code snippet below shows how the state was updated.
+To model and counter the control actuation delay, the MPC optimizer was fed an initial state that was actually the predicted state of the vehicle 100 milliseconds into the future. The code snippet below shows how the initial state was updated.
 
 ```cpp
 //Add delay and then send to MPC
@@ -100,7 +100,7 @@ Eigen::VectorXd state(6);
 state << x0, 0.0, psi0, v0, cte0, epsi0;
 ```
 
-Where `coeffs` in the above code were the polynomial coefficients of the waypoint 3rd order polynomial in car frame. `state` is was is given to the MPC optimizer.
+`coeffs` in the above code were the polynomial coefficients of the waypoint 3rd order polynomial in car frame.
 
 ## Timestep Length and Elapsed Duration, N & dt
 
@@ -109,6 +109,29 @@ The timestep length `dt` and number of time steps calculated into the future `N`
 ## MPC Cost Function Tuning
 
 In addition to having an accurate model, having a well tuned optimization cost function was also crucial to having a working MPC controller. The code bellow shows the definition of the cost function. Costs were tuned emphasize importance of minimizing use of and sequential change in steering angle as well as minimizing tracking error in position and orientation.
+
+```cpp
+
+    // The part of the cost based on the reference state.
+    for (int t = 0; t < N; t++) {
+      fg[0] += CppAD::pow(vars[cte_start + t], 4);
+      fg[0] += CppAD::pow(vars[epsi_start + t], 4);
+      fg[0] += CppAD::pow(vars[v_start + t] - ref_v, 2);
+    }
+
+    // Minimize the use of actuators.
+    for (int t = 0; t < N - 1; t++) {
+      fg[0] += 1500*CppAD::pow(vars[delta_start + t], 2);
+      fg[0] += CppAD::pow(vars[a_start + t], 2);
+    }
+
+    // Minimize the value gap between sequential actuations.
+    for (int t = 0; t < N - 2; t++) {
+      fg[0] += 5000*CppAD::pow(vars[delta_start + t + 1] - vars[delta_start + t], 2);
+      fg[0] += CppAD::pow(vars[a_start + t + 1] - vars[a_start + t], 2);
+    }
+
+```
 
 ## Result
 
