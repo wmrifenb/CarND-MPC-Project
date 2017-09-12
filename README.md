@@ -1,130 +1,117 @@
-# CarND-Controls-MPC
-Self-Driving Car Engineer Nanodegree Program
+# Model Predictive Control
+### William Rifenburgh
 
 ---
 
-## Dependencies
+## Description
 
-* cmake >= 3.5
- * All OSes: [click here for installation instructions](https://cmake.org/install/)
-* make >= 4.1
-  * Linux: make is installed by default on most Linux distros
-  * Mac: [install Xcode command line tools to get make](https://developer.apple.com/xcode/features/)
-  * Windows: [Click here for installation instructions](http://gnuwin32.sourceforge.net/packages/make.htm)
-* gcc/g++ >= 5.4
-  * Linux: gcc / g++ is installed by default on most Linux distros
-  * Mac: same deal as make - [install Xcode command line tools]((https://developer.apple.com/xcode/features/)
-  * Windows: recommend using [MinGW](http://www.mingw.org/)
-* [uWebSockets](https://github.com/uWebSockets/uWebSockets)
-  * Run either `install-mac.sh` or `install-ubuntu.sh`.
-  * If you install from source, checkout to commit `e94b6e1`, i.e.
-    ```
-    git clone https://github.com/uWebSockets/uWebSockets 
-    cd uWebSockets
-    git checkout e94b6e1
-    ```
-    Some function signatures have changed in v0.14.x. See [this PR](https://github.com/udacity/CarND-MPC-Project/pull/3) for more details.
-* Fortran Compiler
-  * Mac: `brew install gcc` (might not be required)
-  * Linux: `sudo apt-get install gfortran`. Additionall you have also have to install gcc and g++, `sudo apt-get install gcc g++`. Look in [this Dockerfile](https://github.com/udacity/CarND-MPC-Quizzes/blob/master/Dockerfile) for more info.
-* [Ipopt](https://projects.coin-or.org/Ipopt)
-  * Mac: `brew install ipopt`
-       +  Some Mac users have experienced the following error:
-       ```
-       Listening to port 4567
-       Connected!!!
-       mpc(4561,0x7ffff1eed3c0) malloc: *** error for object 0x7f911e007600: incorrect checksum for freed object
-       - object was probably modified after being freed.
-       *** set a breakpoint in malloc_error_break to debug
-       ```
-       This error has been resolved by updrading ipopt with
-       ```brew upgrade ipopt --with-openblas```
-       per this [forum post](https://discussions.udacity.com/t/incorrect-checksum-for-freed-object/313433/19).
-  * Linux
-    * You will need a version of Ipopt 3.12.1 or higher. The version available through `apt-get` is 3.11.x. If you can get that version to work great but if not there's a script `install_ipopt.sh` that will install Ipopt. You just need to download the source from the Ipopt [releases page](https://www.coin-or.org/download/source/Ipopt/).
-    * Then call `install_ipopt.sh` with the source directory as the first argument, ex: `sudo bash install_ipopt.sh Ipopt-3.12.1`. 
-  * Windows: TODO. If you can use the Linux subsystem and follow the Linux instructions.
-* [CppAD](https://www.coin-or.org/CppAD/)
-  * Mac: `brew install cppad`
-  * Linux `sudo apt-get install cppad` or equivalent.
-  * Windows: TODO. If you can use the Linux subsystem and follow the Linux instructions.
-* [Eigen](http://eigen.tuxfamily.org/index.php?title=Main_Page). This is already part of the repo so you shouldn't have to worry about it.
-* Simulator. You can download these from the [releases tab](https://github.com/udacity/self-driving-car-sim/releases).
-* Not a dependency but read the [DATA.md](./DATA.md) for a description of the data sent back from the simulator.
+This is a project on Model Predictive Control (MPC). In the project an autonomous driving car is given and is expected to follow
+waypoints that track the center of a race course. Using the car's heading, speed and position, an MPC controller controls the throttle/braking and steering angle of the car to navigate the track. The MPC can do so with a 100 millisecond delay in controls actuation as the model used in the MPC controller can model the effects of latency and optimize for minimal error.
 
+## The Model
 
-## Basic Build Instructions
+The model of the system plant is as follows:
 
+```cpp
 
-1. Clone this repo.
-2. Make a build directory: `mkdir build && cd build`
-3. Compile: `cmake .. && make`
-4. Run it: `./mpc`.
+fg[1 + x_start + t] = x1 - (x0 + v0 * CppAD::cos(psi0) * dt);
+fg[1 + y_start + t] = y1 - (y0 + v0 * CppAD::sin(psi0) * dt);
+fg[1 + psi_start + t] = psi1 - (psi0 + v0 * delta0 / Lf * dt);
+fg[1 + v_start + t] = v1 - (v0 + a0 * dt);
+fg[1 + cte_start + t] = cte1 - ((f0 - y0) + (v0 * CppAD::sin(epsi0) * dt));
+fg[1 + epsi_start + t] = epsi1 - ((psi0 - psides0) + v0 * delta0 / Lf * dt);
 
-## Tips
+```
 
-1. It's recommended to test the MPC on basic examples to see if your implementation behaves as desired. One possible example
-is the vehicle starting offset of a straight line (reference). If the MPC implementation is correct, after some number of timesteps
-(not too many) it should find and track the reference line.
-2. The `lake_track_waypoints.csv` file has the waypoints of the lake track. You could use this to fit polynomials and points and see of how well your model tracks curve. NOTE: This file might be not completely in sync with the simulator so your solution should NOT depend on it.
-3. For visualization this C++ [matplotlib wrapper](https://github.com/lava/matplotlib-cpp) could be helpful.
+Where...
 
-## Editor Settings
+- `x` denotes the x position of the vehicle in __m__,
+- `y`: denotes the y position of the vehicle in __m__,
+- `psi` denotes the orientation of the vehicle in __radians__,
+- `v` denotes velocity magnitude in __m/s__,
+- `a` denotes acceleration magnitude in __m/s²__,
+- `cte` denotes the Cross-Track-Error in __m__,
+- `epsi` denotes orientation error in __radians__,
+- `delta` denotes the steering angle of car in __radians__,
+- `Lf` denotes an approximation of the distance from the center of the front wheels to the car's center of mass,
 
-We've purposefully kept editor configuration files out of this repo in order to
-keep it as simple and environment agnostic as possible. However, we recommend
-using the following settings:
+and the suffix `des` denotes 'desired' and `0` and `1` refer to time step.
 
-* indent using spaces
-* set tab width to 2 spaces (keeps the matrices in source code aligned)
+The model's state variables are all calculated in the car's frame where X points in the direction it is traveling, Y points to its driver's side and `psi` __in the model__ is the angle between the X axis in the counter-clockwise direction. This is not to be confused with the `psi` provided from the simulation which is positive in the clockwise direction and is the angle between the car's reference frame and the global coordinate system.
 
-## Code Style
+## Polynomial Fitting and MPC Preprocessing
 
-Please (do your best to) stick to [Google's C++ style guide](https://google.github.io/styleguide/cppguide.html).
+The simulation by Udacity accepts vectors of coordinate data in local car frame X and Y to display yellow and green lines that represent the desired trajectory and MPC projected trajectory respectively. This requires conversion between the global frame position data given to us from the simulation to the car's frame. `Ai`, the inverse of a homogenous transformation matrix shown below was used to convert from global frame to car frame.
 
-## Project Instructions and Rubric
+```cpp
 
-Note: regardless of the changes you make, your project must be buildable using
-cmake and make!
+//Transformation Matrix for car frame to global frame
+Eigen::MatrixXd A(3,3);
+A << cos(psi), -sin(psi), px,
+      sin(psi), cos(psi), py,
+            0,        0,  1;
+//Take the inverse
+Eigen::MatrixXd Ai(A.inverse());
 
-More information is only accessible by people who are already enrolled in Term 2
-of CarND. If you are enrolled, see [the project page](https://classroom.udacity.com/nanodegrees/nd013/parts/40f38239-66b6-46ec-ae68-03afd8a601c8/modules/f1820894-8322-4bb3-81aa-b26b3c6dcbaf/lessons/b1ff3be0-c904-438e-aad3-2b5379f0e0c3/concepts/1a2255a0-e23c-44cf-8d41-39b8a3c8264a)
-for instructions and the project rubric.
+//Transform waypoints from global to carframe to plot yellow line
+Eigen::VectorXd ptsx_carframe(ptsx.size());
+Eigen::VectorXd ptsy_carframe(ptsy.size());
+for(int i=0; i<ptsx.size(); i++){
 
-## Hints!
+  Eigen::VectorXd pt_globalframe(3);
+  Eigen::VectorXd pt_carframe(3);
+  pt_globalframe << ptsx[i], ptsy[i], 1;
+  pt_carframe = Ai * pt_globalframe;
 
-* You don't have to follow this directory structure, but if you do, your work
-  will span all of the .cpp files here. Keep an eye out for TODOs.
+  ptsx_carframe[i] = pt_carframe[0];
+  ptsy_carframe[i] = pt_carframe[1];
 
-## Call for IDE Profiles Pull Requests
+}
 
-Help your fellow students!
+```
 
-We decided to create Makefiles with cmake to keep this project as platform
-agnostic as possible. Similarly, we omitted IDE profiles in order to we ensure
-that students don't feel pressured to use one IDE or another.
+In addition to converting reference frame, unit conversions were necessary as well. The speed was converted from `mph` to `mps`.
+```cpp
+v *= 0.44704;
+```
+And the acceleration was converted from the unitless throttle parameter of range [-1,1] to `m/s²`
 
-However! I'd love to help people get up and running with their IDEs of choice.
-If you've created a profile for an IDE that you think other students would
-appreciate, we'd love to have you add the requisite profile files and
-instructions to ide_profiles/. For example if you wanted to add a VS Code
-profile, you'd add:
+```cpp
+a *= 2.98027;
+```
+This conversion factor was estimated by flooring the throttle (setting throttle to its max acceleration) in the simulation and measuring the time required to reach 60 mph. This came out to be about 9 seconds. Thus 60[mph]/9[s] * 0.44704[m/mph] = 2.98027[m/s²]
 
-* /ide_profiles/vscode/.vscode
-* /ide_profiles/vscode/README.md
+## Model Predictive Control with Latency
 
-The README should explain what the profile does, how to take advantage of it,
-and how to install it.
+To model and counter the control actuation delay, the MPC optimizer was fed and initial state that was actually the predicted state of the vehicle 100 milliseconds into the future. The code snippet below shows how the state was updated.
 
-Frankly, I've never been involved in a project with multiple IDE profiles
-before. I believe the best way to handle this would be to keep them out of the
-repo root to avoid clutter. My expectation is that most profiles will include
-instructions to copy files to a new location to get picked up by the IDE, but
-that's just a guess.
+```cpp
+//Add delay and then send to MPC
+//Ordering matters here
+double Lf = 2.67;
+double delay = 0.100;
+double x0 = v * delay;
+double psi0 = v * delta / Lf * delay;
+double v0 = v + a * delta;
+double cte0 = polyeval(coeffs, x0);
+double epsi0 = -atan(coeffs[1] + 2 * coeffs[2] * x0 + 3 * coeffs[3] * x0 * x0) - psi0;
 
-One last note here: regardless of the IDE used, every submitted project must
-still be compilable with cmake and make./
+Eigen::VectorXd state(6);
+state << x0, 0.0, psi0, v0, cte0, epsi0;
+```
 
-## How to write a README
-A well written README file can enhance your project and portfolio.  Develop your abilities to create professional README files by completing [this free course](https://www.udacity.com/course/writing-readmes--ud777).
+Where `coeffs` in the above code were the polynomial coefficients of the waypoint 3rd order polynomial in car frame. `state` is was is given to the MPC optimizer.
 
+## Timestep Length and Elapsed Duration, N & dt
+
+The timestep length `dt` and number of time steps calculated into the future `N` by the MPC were initially chosen to be `N=10` and `dt=0.1`. This resulted in behavior that was marginally stable. If introduced to a sudden error, the MPC would cause the car to continuously oscillate around the center of the road and paint the waypoint line on the opposite side of it. Increasing `dt` to 0.2 made the oscillation settle quickly and allowed to MPC to plan further ahead.
+
+## MPC Cost Function Tuning
+
+In addition to having an accurate model, having a well tuned optimization cost function was also crucial to having a working MPC controller. The code bellow shows the definition of the cost function. Costs were tuned emphasize importance of minimizing use of and sequential change in steering angle as well as minimizing tracking error in position and orientation.
+
+## Result
+
+Below is a video of the MPC controller navigating the course at a desired speed of 70 mph.
+
+[![Video](./ssvideo.png)](https://youtu.be/okAKGDYGg8Y)
